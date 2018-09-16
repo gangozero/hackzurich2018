@@ -11,7 +11,7 @@ import (
 func newServer() *server {
 	return &server{
 		serverKey:  os.Getenv("SERVER_KEY"),
-		recipients: []string{os.Getenv("TEST_DEVICE_TOKEN")},
+		recipients: []string{os.Getenv("TEST_DEVICE_TOKEN"), os.Getenv("TEST_DEVICE_EMUL")},
 	}
 }
 

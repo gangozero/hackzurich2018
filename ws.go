@@ -80,9 +80,9 @@ func (s *server) doCalibrate(raw json.RawMessage) {
 			log.Printf("[ERROR] Error write push to WS: %s", err.Error())
 		}
 
-		//err = s.sendPush(push)
-		//if err != nil {
-		//	log.Printf("[ERROR] Error send push through FCM: %s", err.Error())
-		//}
+		err = s.sendPush(push)
+		if err != nil {
+			log.Printf("[ERROR] Error send push through FCM: %s", err.Error())
+		}
 	}
 }

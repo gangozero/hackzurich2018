@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+
+    <div style="overflow:auto; margin-left:auto;margin-right:auto;">
+        <canvas id="myCanvas" style="background-color: dimgrey" width="1250" height="700"></canvas>
+        <button style="display: block; width: 300px; height: 100px" id="push" onclick="sendPushMessages()">Send push
+            messages
+        </button>
+    </div>
+
+    <script type="text/javascript" src="js/Histogram.js"></script>
+    <script type="text/javascript" src="js/train-drawer.js"></script>
+    <script type="text/javascript" src="js/Api.js"></script>
+    <script type="text/javascript" src="js/Size.js"></script>
+    <script type="text/javascript" src="js/Platform.js"></script>
+    <script type="text/javascript" src="js/Person.js"></script>
+    <script type="text/javascript" src="js/Train.js"></script>
+    <script>
+
+        window.api = new Api();
+
+        window.peopleCount = 150;
+        window.refreshRate = 30;
+        window.randomWalk = false;
+
+        window.Delay = -10;
+        window.StatePeopleComing = -1;
+        window.StateWaiting = 0;
+        window.StateTrainComing = 1;
+        window.StateTrainStopped = 2;
+        window.StateBoarding = 3;
+        window.StateBoardingFinished = 4;
+        window.StateTrainLeaving = 5;
+        window.StateTrainLeft = 6;
+        window.StateFillingNew = 7;
+        window.StateInformCrowdedZone = 13;
+        window.StateStartDistribution = 14;
+
+        window.typePerson = 1;
+        window.typePlatform = 2;
+        window.typeRailWay = 3;
+        window.typeStation = 4;
+        window.typeTrain = 5;
+        window.gridSize = 10;
+        window.colors = {};
+        window.messagesAlpha = 0;
+
+        window.state = StatePeopleComing;
+
+        window.idCounter = 0;
+
+        window.prevState = 0;
+
+        window.histogram = new Histogram();
+
+        document.addEventListener('DOMContentLoaded', function () {
+            window.canvas = document.getElementById("myCanvas");
+            window.ctx = window.canvas.getContext("2d");
+            run();
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.code === 'Space') {
+                if (state === Delay || state === StateWaiting) {
+                    sendPushMessages();
+                }
+            }
+        });
+
+        function sendPushMessages() {
+            api.sendPeople(platform, platform.people);
+            //platform.informCentralUsers();
+            messagesAlpha = 0.35;
+            prevState = state;
+            state = StateInformCrowdedZone;
+        }
+
+        function startDistribution() {
+            state = StateStartDistribution;
+        }
+
+        function addSarah() {
+            if (platform.sarah != null) return;
+            let m = new Person(3, 35);
+            m.visible = true;
+            m.loadImage("./img/sarah.png");
+            platform.sarah = m;
+        }
+
+        function run() {
+
+            colors[typePerson] = "#aff7ff";
+            colors[typePlatform] = "#5c8085";
+            colors[typeRailWay] = "#8dc4cb";
+            colors[typeStation] = "#a5e7ee";
+            colors[typeTrain] = "#a77cee";
+
+            class Obj {
+                constructor(type, x, y, width, height) {
+                    this.size = new Size(x, y, width, height);
+                    this.type = type;
+                    this.children = [];
+                }
+            }
+
+            const width = 123;
+            const height = 6;
+            var objects = [];
+            var railWay = new Obj(typeRailWay, 1, 1, width, height);
+            window.platform = new Platform(new Size(railWay.size.x, railWay.size.y + railWay.size.height, railWay.size.width, 10));
+            window.train = new Train(width * -1, 1, width + 1, 1, width, height);
+
+            platform.addPeople(peopleCount);
+
+            objects.push(train);
+            objects.push(platform);
+
+            setInterval(
+                function () {
+                    if (state === StateWaiting) {
+
+                        state = Delay;
+
+                        setTimeout(function () {
+                            state = StateTrainComing;
+                            train.arrive();
+                        }, 5000);
+
+                    } else if (state === StateTrainStopped) {
+                        state = StateBoarding;
+                        train.people = train.people.concat(platform.people.slice(0));
+                        train.board();
+                    } else if (state === StateBoardingFinished) {
+                        state = StateTrainLeaving;
+                        train.depart();
+                    } else if (state === StateTrainLeft) {
+                        platform.addPeople(peopleCount);
+                        state = StatePeopleComing;
+                    } else if (state === StateStartDistribution) {
+                        if (messagesAlpha > 0) messagesAlpha -= 0.1;
+
+                        let finished = true;
+                        for (p of platform.people) {
+                            if (p.custom && !p.distributionFinished) {
+                                finished = false;
+                            }
+                        }
+
+                        if (finished) {
+                            state = prevState;
+                        }
+                    }
+
+                    if (state === StateWaiting ||
+                        state === StateTrainComing ||
+                        state === StateStartDistribution ||
+                        state === Delay
+                    ) {
+                        platform.setWalk(state === StateStartDistribution);
+                    }
+
+
+                    updateView();
+                },
+                refreshRate
+            );
+
+            function updateView() {
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                objects.forEach(function (obj, index) {
+                    render(obj);
+                });
+
+                if (state === Delay || state === StateWaiting) {
+                    document.getElementById("push").disabled = false;
+                } else {
+                    document.getElementById("push").disabled = true;
+                }
+
+                histogram.draw(platform.people)
+            }
+
+            function render(object) {
+
+                if (object instanceof Platform) {
+
+                    drawRect(object.size.x, object.size.y, object.size.width, object.size.height, "#340255");
+
+                    var custom = [];
+
+                    for (var i in platform.people) {
+                        const person = platform.people[i];
+                        if (!person.visible) continue;
+                        let perX = person.x + object.size.x;
+                        let perY = person.y + object.size.y;
+
+                        if (person.custom) {
+                            custom.push(person);
+                        } else {
+                            drawRect(perX, perY, 1, 1, "#00ff00");
+                        }
+                    }
+
+                    for (var i in custom) {
+                        const person = custom[i];
+                        if (person.wentToFirstClass) {
+                            drawPlatformPerson(person, "#ffe400");
+                        } else {
+                            drawPlatformPerson(person, "#ff0000");
+                        }
+
+                    }
+
+                } else if (object instanceof Train) {
+                    drawTrain(train, gridSize, ctx, canvas);
+
+                    for (var i in train.staticPeople) {
+                        const person = train.staticPeople[i];
+                        let perX = person.x + object.x;
+                        let perY = person.y + object.y;
+                        drawRect(perX, perY, 1, 1, "#00ff00");
+                    }
+                }
+            }
+
+            function drawRect(x, y, width, height, color) {
+                x *= gridSize;
+                y *= gridSize;
+                width *= gridSize;
+                height *= gridSize;
+
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, width, height);
+            }
+
+            function drawPlatformPerson(person, color) {
+                let perX = person.x + platform.size.x;
+                let perY = person.y + platform.size.y;
+
+                if (person.image != null) {
+                    ctx.drawImage(person.image, perX * gridSize, perY * gridSize);
+                } else {
+                    drawRect(perX, perY, 1, 1, color);
+                }
+
+                if (person.custom) {
+                    //drawPopup(person)
+                }
+
+
+            }
+
+            function drawPopup(person) {
+
+                let x = (person.x + platform.size.x) * gridSize + gridSize / 2;
+                let y = (person.y + platform.size.y) * gridSize;
+
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x + 5, y - 5);
+                ctx.lineTo(x + 5 + 50, y - 5);
+                ctx.lineTo(x + 5 + 50, y - 5 - 25);
+                ctx.lineTo(x + 5 + 50 - 60, y - 5 - 25);
+                ctx.lineTo(x + 5 + 50 - 60, y - 5 - 30 + 30);
+                ctx.lineTo(x + 5 + 50 - 60 + 5, y - 5 - 30 + 30);
+                ctx.closePath();
+                ctx.fillStyle = "rgba(255, 255, 255, " + messagesAlpha + ")";
+                ctx.fill();
+            }
+
+        }
+
+
+    </script>
+
+
+</head>
+<body>
+
+</body>
+</html>
+</html>
